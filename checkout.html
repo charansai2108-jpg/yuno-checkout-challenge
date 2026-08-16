@@ -7,23 +7,74 @@
   <style>
     body { font-family: Arial, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
     h1 { font-size: 20px; }
-    #order-summary { background: #f5f5f7; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; }
-    #yuno-checkout { min-height: 320px; }
+    h2 { font-size: 15px; margin: 20px 0 8px; }
+    .product-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; border-bottom: 1px solid #eee;
+    }
+    .product-row .name { flex: 1; }
+    .product-row .price { color: #666; font-size: 14px; margin-right: 12px; }
+    .product-row input[type="number"] {
+      width: 60px; padding: 6px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;
+    }
+    #order-summary { background: #f5f5f7; padding: 12px 16px; border-radius: 8px; margin: 16px 0; }
+    #order-summary ul { margin: 8px 0; padding-left: 18px; }
+    #order-summary .total { font-weight: bold; margin-top: 8px; }
+    #continue-button, #pay-button {
+      width: 100%; padding: 14px; font-size: 16px; background: #111; color: #fff;
+      border: none; border-radius: 8px; cursor: pointer; margin-bottom: 16px;
+    }
+    #continue-button:disabled, #pay-button:disabled { background: #999; cursor: not-allowed; }
+    #yuno-checkout { min-height: 320px; margin-bottom: 16px; }
     #status { margin-top: 16px; font-weight: bold; }
     .error { color: #c0392b; }
     .success { color: #1e8449; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <h1>Yunique Fashion Store — Checkout Demo</h1>
 
-  <div id="order-summary">
-    <strong>Order #DEMO-1001</strong><br />
-    1x Denim Jacket — USD 89.00
+  <!-- STEP 1: pick multiple products, each with its own quantity -->
+  <div id="step-select">
+    <h2>Products</h2>
+    <div id="product-list">
+      <div class="product-row" data-price="89.00" data-name="Denim Jacket">
+        <span class="name">Denim Jacket</span>
+        <span class="price">USD 89.00</span>
+        <input type="number" class="qty-input" value="0" min="0" step="1" />
+      </div>
+      <div class="product-row" data-price="45.00" data-name="Cotton T-Shirt">
+        <span class="name">Cotton T-Shirt</span>
+        <span class="price">USD 45.00</span>
+        <input type="number" class="qty-input" value="0" min="0" step="1" />
+      </div>
+      <div class="product-row" data-price="120.00" data-name="Leather Boots">
+        <span class="name">Leather Boots</span>
+        <span class="price">USD 120.00</span>
+        <input type="number" class="qty-input" value="0" min="0" step="1" />
+      </div>
+      <div class="product-row" data-price="65.00" data-name="Wool Sweater">
+        <span class="name">Wool Sweater</span>
+        <span class="price">USD 65.00</span>
+        <input type="number" class="qty-input" value="0" min="0" step="1" />
+      </div>
+    </div>
+
+    <div id="order-summary">
+      <strong>Order #DEMO-1001</strong>
+      <ul id="order-lines"></ul>
+      <div class="total" id="order-total">Total: USD 0.00</div>
+    </div>
+
+    <button id="continue-button" disabled>Continue to Payment</button>
   </div>
 
-  <!-- SDK FULL mounts the pre-built card form here -->
-  <div id="yuno-checkout"></div>
+  <!-- STEP 2: card form, only appears after Continue is clicked -->
+  <div id="step-payment" class="hidden">
+    <div id="yuno-checkout"></div>
+    <button id="pay-button" disabled>Pay</button>
+  </div>
 
   <div id="status"></div>
 
@@ -31,21 +82,73 @@
   <script src="https://sdk-web.y.uno/v1.9/main.js"></script>
 
   <script>
-    // --- CONFIG: replace with values from your Yuno Dashboard ---
+    // ============================================================
+    // EDIT THIS LINE ONLY — paste your real Yuno public key below
     const YUNO_PUBLIC_API_KEY = "sandbox_gAAAAABqgYbgwC_n5Sihyts3IeM3s3MbT-fNrjqwQ1y8WNgV0jUFaSLrGbKB0i7sRknuOPl44WEV1_uK69iAkSOPcsM2bR33kcEc1G8UgEsgam8NBdBpcsXt2eHDOlJN37ph0-vAPp7kh3beN28q9s0gAQLvOdo7zRJCyf48Tvj-tB00g8jX3DPhlEjGdskOcEQvpv8qwokm6UaDS0gu40o1AVjDfHxSi9vCECNlUXZ0xHVTOrDQvdRMCTSOeqZViEhIopipSMkw";
+    // ============================================================
     const BACKEND_BASE_URL = "http://localhost:5000";
-    // --------------------------------------------------------------
 
     const statusEl = document.getElementById("status");
+    const productRows = document.querySelectorAll(".product-row");
+    const orderLinesEl = document.getElementById("order-lines");
+    const orderTotalEl = document.getElementById("order-total");
+    const continueButton = document.getElementById("continue-button");
+    const stepSelect = document.getElementById("step-select");
+    const stepPayment = document.getElementById("step-payment");
+    const payButton = document.getElementById("pay-button");
 
-    async function init() {
+    function getCart() {
+      // Returns only the products with quantity > 0
+      const cart = [];
+      productRows.forEach(row => {
+        const qty = parseInt(row.querySelector(".qty-input").value, 10) || 0;
+        if (qty > 0) {
+          cart.push({
+            name: row.dataset.name,
+            price: parseFloat(row.dataset.price),
+            qty: qty
+          });
+        }
+      });
+      return cart;
+    }
+
+    function currentAmount() {
+      const cart = getCart();
+      const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+      return Math.round(total * 100) / 100;
+    }
+
+    function updateOrderSummary() {
+      const cart = getCart();
+      orderLinesEl.innerHTML = cart
+        .map(item => `<li>${item.qty}x ${item.name} — USD ${(item.price * item.qty).toFixed(2)}</li>`)
+        .join("");
+      orderTotalEl.textContent = `Total: USD ${currentAmount().toFixed(2)}`;
+      continueButton.disabled = cart.length === 0;
+    }
+
+    productRows.forEach(row => {
+      row.querySelector(".qty-input").addEventListener("input", updateOrderSummary);
+    });
+    updateOrderSummary(); // initial render (empty cart)
+
+    // The SDK only starts once the user clicks Continue — so the
+    // product list stays fully interactive until then.
+    continueButton.addEventListener("click", async () => {
+      continueButton.disabled = true;
+      continueButton.textContent = "Loading...";
+      productRows.forEach(row => row.querySelector(".qty-input").disabled = true);
+
       try {
+        const amount = currentAmount();
+
         // 1. Ask our backend to create a Checkout Session (server-to-server, uses secret key)
         const sessionResp = await fetch(`${BACKEND_BASE_URL}/create-checkout-session`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            amount: 89.00,
+            amount: amount,
             currency: "USD",
             country: "US",
             customer: {
@@ -60,35 +163,39 @@
           throw new Error("No checkout_session returned from backend");
         }
 
+        stepSelect.classList.add("hidden");
+        stepPayment.classList.remove("hidden");
+
         // 2. Initialize the Yuno SDK with the PUBLIC key (safe for client-side)
         const yuno = await window.SdkPayments.initialize(YUNO_PUBLIC_API_KEY);
 
-        // 3. Mount the Full checkout UI, wired to the checkout session
+        // 3. Configure the checkout (does NOT render anything yet)
         await yuno.startCheckout({
           checkoutSession: session.checkout_session,
           elementSelector: "#yuno-checkout",
           countryCode: "US",
           language: "en",
           showPaymentStatus: true,
-          showPayButton: true,
           yunoCreatePayment: async (oneTimeToken, tokenWithInformation) => {
             statusEl.textContent = "Processing payment...";
             statusEl.className = "";
 
-            // 4. Send the one-time token to OUR backend, which calls Create Payment (secret key)
+            // 5. Send the one-time token to OUR backend, which calls Create Payment (secret key)
             const paymentResp = await fetch(`${BACKEND_BASE_URL}/create-payment`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 checkout_session: session.checkout_session,
                 one_time_token: oneTimeToken,
-                token_with_information: tokenWithInformation || null
+                token_with_information: tokenWithInformation || null,
+                amount: amount,
+                currency: "USD",
+                country: "US"
               })
             });
             const paymentResult = await paymentResp.json();
 
             if (paymentResult.sdk_action_required) {
-              // Let the SDK handle 3DS / extra steps
               await yuno.continuePayment();
             }
 
@@ -103,17 +210,23 @@
             }
           }
         });
+
+        // 4. THIS is what actually renders the form into #yuno-checkout
+        await yuno.mountCheckout();
+        payButton.disabled = false;
+
+        // 6. Wire our own Pay button to trigger the payment flow
+        payButton.addEventListener("click", async () => {
+          payButton.disabled = true;
+          await yuno.startPayment();
+        });
+
       } catch (err) {
         console.error(err);
         statusEl.textContent = "Error initializing checkout: " + err.message;
         statusEl.className = "error";
       }
-    }
-
-    // Wait for the SDK to be ready before initializing
-    document.addEventListener("yuno-sdk-ready", init);
-    // Fallback in case the event already fired before this listener was attached
-    if (window.SdkPayments) init();
+    });
   </script>
 </body>
 </html>
