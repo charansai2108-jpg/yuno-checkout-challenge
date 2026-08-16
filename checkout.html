@@ -67,6 +67,9 @@
         await yuno.startCheckout({
           checkoutSession: session.checkout_session,
           elementSelector: "#yuno-checkout",
+          countryCode: "US",
+          language: "en",
+          showPaymentStatus: true,
           showPayButton: true,
           yunoCreatePayment: async (oneTimeToken, tokenWithInformation) => {
             statusEl.textContent = "Processing payment...";
